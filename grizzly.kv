@@ -1,0 +1,88 @@
+#:kivy 1.6
+
+<GrizzlyController>:
+    classifier_label: classifier_label
+    BoxLayout:
+        orientation: 'vertical'
+
+        # Classifier choice element
+        BoxLayout:
+            size_hint: (1, .1)
+            Button:
+                size_hint: (0.2, 1)
+                text: 'choose'
+                on_press: root.choose_classifier()
+            Label:
+                size_hint: (0.8, 1)
+                id: classifier_label
+                text: root.classifier_name or 'N/A'
+
+        # Classification execution + output
+        BoxLayout:
+            size_hint: (1, .8)
+
+            # Left option pane
+            BoxLayout:
+                size_hint: (.3, 1)
+                BoxLayout:
+                    orientation: 'vertical'
+                    # Testing options
+                    BoxLayout:
+                        size_hint: (1, .3)
+                        orientation: 'vertical'
+                        ToggleButton:
+                            text: 'Use training set'
+                            group: 'cross-validation-options'
+                        BoxLayout:
+                            ToggleButton:
+                                text: 'Supplied test set'
+                                group: 'cross-validation-options'
+                            Label:
+                                text: 'Pick file'
+                        BoxLayout:
+                            ToggleButton:
+                                size_hint: (.5, 1)
+                                text: 'Cross-validation'
+                                group: 'cross-validation-options'
+                                state: 'down'
+                            Label:
+                                size_hint: (.25, 1)
+                                text: 'Folds'
+                            TextInput:
+                                size_hint: (.25, 1)
+                                text: '10'
+                        BoxLayout:
+                            ToggleButton:
+                                size_hint: (.5, 1)
+                                text: 'Percentage split'
+                                group: 'cross-validation-options'
+                            Label:
+                                size_hint: (.25, 1)
+                                text: '%'
+                            TextInput:
+                                size_hint: (.25, 1)
+                                text: '66'
+
+                    Label:
+                        size_hint: (1, .1)
+                        text: 'predicted variable'
+                    BoxLayout:
+                        size_hint: (1, .1)
+                        Button:
+                            text: 'Start'
+                        Button:
+                            text: 'Stop'
+                    Label:
+                        size_hint: (1, .5)
+                        text: 'Result list'
+                        
+
+            TextInput:
+                size_hint: (.7, 1)
+                text: 'classifier output'
+                readonly: True
+
+        # Status
+        BoxLayout:
+            size_hint: (1, .1)
+                
