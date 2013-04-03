@@ -1,0 +1,4 @@
+scikit-learn
+kivy
+cython
+pygame
