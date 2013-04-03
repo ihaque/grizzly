@@ -45,9 +45,9 @@ class GrizzlyModel(object):
     def _build_estimator_tree():
         classifiers, regressors, clusterers = sklearn_utils.list_classifiers()
         estimators = OrderedDict()
-        for typ, lst in [('classifiers', classifiers),
-                         ('regressors', regressors),
-                         ('clusterers', clusterers)]:
+        for typ, lst in [('Classifiers', classifiers),
+                         ('Regressors', regressors),
+                         ('Clusterers', clusterers)]:
             module2name = OrderedDict()
             for modulepath, name in sorted(lst):
                 modlist = module2name.setdefault(modulepath, [])
@@ -121,8 +121,8 @@ class GrizzlyController(FloatLayout):
         tv = TreeView(root_options={'text': 'Estimators'})
 
         def populate_tree(parent, level, index, path):
-            obj = level[index]
-            if isinstance(level[index], _estimator):
+            obj = level if index is None else level[index]
+            if isinstance(obj, _estimator):
                 estimator = obj
                 button = TreeViewLabel(
                     text=estimator.name,
@@ -134,14 +134,15 @@ class GrizzlyController(FloatLayout):
                     indices = obj.iterkeys()
                 except AttributeError:
                     indices = xrange(len(obj))
-                group_node = TreeViewLabel(text=index)
-                tv.add_node(group_node, parent)
+                if index is not None:
+                    group_node = TreeViewLabel(text=index)
+                    tv.add_node(group_node, parent)
+                else:
+                    group_node = None
                 for index in indices:
                     populate_tree(group_node, obj, index, path + [index])
             return
-        populate_tree(None,
-                      {'estimators': self.model.estimators},
-                      'estimators', [])
+        populate_tree(None, self.model.estimators, None, [])
         return tv
 
 
