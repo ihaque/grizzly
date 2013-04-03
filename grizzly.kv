@@ -85,4 +85,30 @@
         # Status
         BoxLayout:
             size_hint: (1, .1)
+            Button:
+                text: 'load file'
+                on_press: root.onclick_loadfile()
                 
+<LoadDialog>:
+    filename: filename
+    BoxLayout:
+        orientation: 'vertical'
+        FileChooserIconView:
+            on_selection: filename.text = self.selection and self.selection[0] or ''
+            filters: ['*.arff']
+            id: filechooser
+        TextInput:
+            id: filename
+            size_hint_y: None
+            height: 30
+            multiline: False
+        BoxLayout:
+            size_hint_y: None
+            height: 50
+            Button:
+                text: 'Load'
+                on_release: root.load(filechooser.path, filechooser.selection)
+            Button:
+                text: 'Cancel'
+                on_release: root.cancel()
+
