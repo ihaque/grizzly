@@ -79,7 +79,7 @@
 
             TextInput:
                 size_hint: (.7, 1)
-                text: 'classifier output'
+                text: root.output_text or 'classifier output'
                 readonly: True
 
         # Status
@@ -97,6 +97,7 @@
             on_selection: filename.text = self.selection and self.selection[0] or ''
             filters: ['*.arff']
             id: filechooser
+            path: root.path
         TextInput:
             id: filename
             size_hint_y: None

@@ -1,7 +1,7 @@
 from collections import OrderedDict
 from copy import copy
-from functools import partial
-#import os
+import logging
+import os
 #os.environ['KIVY_NO_CONSOLELOG'] = "1"
 import kivy
 kivy.require('1.6.0')
@@ -22,10 +22,15 @@ from kivy.properties import StringProperty
 import sklearn_utils
 
 
+logger = logging.getLogger('grizzly')
+logger.setLevel(logging.DEBUG)
+
+
 class LoadDialog(FloatLayout):
     filename = ObjectProperty(None)
     load = ObjectProperty(None)
     cancel = ObjectProperty(None)
+    path = StringProperty(os.getcwd())
 
 
 class _estimator(object):
@@ -40,6 +45,7 @@ class _estimator(object):
 class GrizzlyModel(object):
     def __init__(self):
         self.estimators = self._build_estimator_tree()
+        self._data, self._meta = None, None
 
     @staticmethod
     def _build_estimator_tree():
@@ -55,15 +61,39 @@ class GrizzlyModel(object):
             estimators[typ] = module2name
         return estimators
 
+    def load_data(self, filename):
+        # Currently only supports ARFF
+        from scipy.io.arff import loadarff
+        self._data, self._meta = loadarff(filename)
+        logger.info('Loaded %d instances from %s' %
+                    (self._data.shape[0], filename))
+        logger.info('Features: ' + str(zip(self._meta.names(),
+                                           self._meta.types())))
+
+
+class OutputWindowStream(object):
+    def __init__(self, controller_obj):
+        self.controller = controller_obj
+
+    def write(self, data):
+        self.controller.output_text += data
+
+    def flush(self):
+        pass
+
 
 class GrizzlyController(FloatLayout):
     classifier_label = ObjectProperty()
     classifier_name = StringProperty()
+    output_text = StringProperty()
 
     def __init__(self, model, *args, **kwargs):
         super(GrizzlyController, self).__init__(*args, **kwargs)
         self.model = model
         self.current_popup = None
+        self.window_logging_handler = logging.StreamHandler(
+            OutputWindowStream(self))
+        logger.addHandler(self.window_logging_handler)
 
     def show_popup(self, popup):
         assert self.current_popup is None
@@ -92,17 +122,18 @@ class GrizzlyController(FloatLayout):
             label = label[idx]
         self.classifier_name = "%s (%s)" % (label.name, label.fullname)
 
-    def load_arff(self, path, filename, window=None):
-        print path
-        print filename
-        if window:
-            window.dismiss()
+    def load_arff(self, path, filenames):
+        assert len(filenames) == 1
+        filename = filenames[0]
+        logger.info("Loading from %s..." % filename)
+        self.model.load_data(filename)
+        self.close_popup()
 
     def onclick_loadfile(self):
         popup = Popup(title="Load ARFF", content=LoadDialog())
-        popup.content.cancel = popup.dismiss
-        popup.content.load = partial(self.load_arff, window=popup)
-        popup.open()
+        popup.content.load = self.load_arff
+        popup.content.cancel = self.close_popup
+        self.show_popup(popup)
 
     def _build_classifier_tree(self, classifier_callback):
         class TreeViewButton(Button, TreeViewNode):
