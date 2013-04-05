@@ -62,7 +62,6 @@ class GrizzlyModel(object):
         return estimators
 
     def load_data(self, filename):
-        # Currently only supports ARFF
         from scipy.io.arff import loadarff
         self._data, self._meta = loadarff(filename)
         logger.info('Loaded %d instances from %s' %
