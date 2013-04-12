@@ -62,10 +62,11 @@
                             TextInput:
                                 size_hint: (.25, 1)
                                 text: '66'
-
-                    Label:
+                    Button:
+                        text: 'choose variable'
+                        on_press: root.choose_target_variable()
                         size_hint: (1, .1)
-                        text: 'predicted variable'
+
                     BoxLayout:
                         size_hint: (1, .1)
                         Button:
@@ -112,4 +113,3 @@
             Button:
                 text: 'Cancel'
                 on_release: root.cancel()
-

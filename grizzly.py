@@ -10,7 +10,6 @@ from kivy.app import App
 from kivy.factory import Factory
 #from kivy.lang import Builder
 from kivy.uix.floatlayout import FloatLayout
-from kivy.uix.button import Button
 from kivy.uix.label import Label
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.treeview import TreeView
@@ -24,6 +23,25 @@ import sklearn_utils
 
 logger = logging.getLogger('grizzly')
 logger.setLevel(logging.DEBUG)
+
+
+class ClickableLabel(Label):
+    def __init__(self, onclick=None, *args, **kwargs):
+        print "initing clickable label with args, kwargs=", args, kwargs
+        super(ClickableLabel, self).__init__(*args, **kwargs)
+        self.onclick_callback = onclick
+
+    def on_touch_down(self, touch):
+        if (self.onclick_callback is not None and
+                not touch.is_mouse_scrolling and
+                self.collide_point(touch.x, touch.y)):
+            self.onclick_callback(self, touch)
+        return super(ClickableLabel, self).on_touch_down(touch)
+
+    def select(self):
+        print "selected", self.text
+        if self.onclick_callback:
+            self.onclick_callback(self, None)
 
 
 class LoadDialog(FloatLayout):
@@ -46,6 +64,7 @@ class GrizzlyModel(object):
     def __init__(self):
         self.estimators = self._build_estimator_tree()
         self._data, self._meta = None, None
+        self._target = None
 
     @staticmethod
     def _build_estimator_tree():
@@ -64,10 +83,21 @@ class GrizzlyModel(object):
     def load_data(self, filename):
         from scipy.io.arff import loadarff
         self._data, self._meta = loadarff(filename)
+        self._target = None
         logger.info('Loaded %d instances from %s' %
                     (self._data.shape[0], filename))
-        logger.info('Features: ' + str(zip(self._meta.names(),
-                                           self._meta.types())))
+        logger.info('Features: ' + str(self.metadata))
+
+    @property
+    def metadata(self):
+        if self._meta is None:
+            return None
+        else:
+            return zip(self._meta.names(), self._meta.types())
+
+    def set_target(self, target_name):
+        assert target_name in self._meta.names()
+        self._target = target_name
 
 
 class OutputWindowStream(object):
@@ -114,12 +144,15 @@ class GrizzlyController(FloatLayout):
         scrollable.add_widget(tree)
         self.show_popup(Popup(title="Select classifier", content=scrollable))
 
-    def select_classifier(self, instance):
+    def select_classifier(self, instance, touch):
         self.close_popup()
         label = self.model.estimators
         for idx in instance.path:
             label = label[idx]
         self.classifier_name = "%s (%s)" % (label.name, label.fullname)
+
+    def choose_target_variable(self):
+        pass
 
     def load_arff(self, path, filenames):
         assert len(filenames) == 1
@@ -135,30 +168,19 @@ class GrizzlyController(FloatLayout):
         self.show_popup(popup)
 
     def _build_classifier_tree(self, classifier_callback):
-        class TreeViewButton(Button, TreeViewNode):
-            path = ObjectProperty()
-            pass
-
-        class TreeViewLabel(Label, TreeViewNode):
+        class TreeViewLabel(ClickableLabel, TreeViewNode):
             path = ObjectProperty()
 
-            def on_touch_down(self, touch):
-                if self.path and not touch.is_mouse_scrolling:
-                    print self.__dict__
-                    classifier_callback(self)
-                return super(TreeViewLabel, self).on_touch_down(touch)
-            pass
         tv = TreeView(root_options={'text': 'Estimators'})
 
         def populate_tree(parent, level, index, path):
             obj = level if index is None else level[index]
             if isinstance(obj, _estimator):
                 estimator = obj
-                button = TreeViewLabel(
-                    text=estimator.name,
-                    markup=False)
-                button.path = copy(path)
-                tv.add_node(button, parent)
+                label = TreeViewLabel(text=estimator.name,
+                                      onclick=classifier_callback)
+                label.path = copy(path)
+                tv.add_node(label, parent)
             else:
                 try:
                     indices = obj.iterkeys()
