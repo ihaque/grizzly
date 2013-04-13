@@ -61,6 +61,7 @@ class GrizzlyModel(object):
     def set_target(self, target_name):
         assert target_name in self._meta.names()
         self._target = target_name
+        logger.info('Predicting %s' % self._target)
 
 
 class GrizzlyApp(App):

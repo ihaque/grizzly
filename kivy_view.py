@@ -1,16 +1,19 @@
+from collections import namedtuple
 from copy import copy
 import logging
 import os
+
 from kivy.factory import Factory
-#from kivy.lang import Builder
+
+from kivy.properties import ObjectProperty
+from kivy.properties import StringProperty
+
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.label import Label
+from kivy.uix.popup import Popup
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.treeview import TreeView
 from kivy.uix.treeview import TreeViewNode
-from kivy.uix.popup import Popup
-from kivy.properties import ObjectProperty
-from kivy.properties import StringProperty
 
 logger = logging.getLogger('grizzly')
 logger.setLevel(logging.DEBUG)
@@ -35,6 +38,10 @@ class ClickableLabel(Label):
             self.onclick_callback(self, None)
 
 
+class TreeViewLabel(ClickableLabel, TreeViewNode):
+    path = ObjectProperty()
+
+
 class LoadDialog(FloatLayout):
     filename = ObjectProperty(None)
     load = ObjectProperty(None)
@@ -51,6 +58,40 @@ class OutputWindowStream(object):
 
     def flush(self):
         pass
+
+
+def create_scrollable_treeview(nested_dicts, onclick, root_label):
+    tv = TreeView(root_options={'text': root_label})
+
+    def populate_tree(parent, level, index, path):
+        obj = level if index is None else level[index]
+        if hasattr(obj, 'name'):
+            label = TreeViewLabel(text=obj.name,
+                                  onclick=onclick)
+            label.path = copy(path)
+            tv.add_node(label, parent)
+        else:
+            try:
+                indices = obj.iterkeys()
+            except AttributeError:
+                indices = xrange(len(obj))
+            # This `if` is a hack to deal with the root of the given tree
+            if index is None:
+                group_node = None
+            else:
+                group_node = TreeViewLabel(text=index)
+                tv.add_node(group_node, parent)
+            for index in indices:
+                populate_tree(group_node, obj, index, path + [index])
+
+    populate_tree(None, nested_dicts, None, [])
+
+    # Make the tree scrollable inside the ScrollView
+    tv.size_hint_y = None
+    tv.bind(minimum_height=tv.setter('height'))
+    scrollable = ScrollView()
+    scrollable.add_widget(tv)
+    return scrollable
 
 
 class GrizzlyController(FloatLayout):
@@ -76,15 +117,11 @@ class GrizzlyController(FloatLayout):
         self.current_popup = None
 
     def choose_classifier(self):
-        tree = self._build_classifier_tree(self.select_classifier)
-
-        # Make the tree scrollable inside the ScrollView
-        tree.size_hint_y = None
-        tree.bind(minimum_height=tree.setter('height'))
-
-        scrollable = ScrollView()
-        scrollable.add_widget(tree)
-        self.show_popup(Popup(title="Select classifier", content=scrollable))
+        self.show_popup(
+            Popup(title="Select classifier",
+                  content=create_scrollable_treeview(self.model.estimators,
+                                                     self.select_classifier,
+                                                     'Estimators')))
 
     def select_classifier(self, instance, touch):
         self.close_popup()
@@ -94,7 +131,20 @@ class GrizzlyController(FloatLayout):
         self.classifier_name = "%s (%s)" % (label.name, label.fullname)
 
     def choose_target_variable(self):
-        pass
+        _vartype = namedtuple('vartype', ('name', ))
+        var_labels = [_vartype('%s (%s)' % (fname, ftype)) for fname, ftype in
+                      self.model.metadata]
+        self.show_popup(
+            Popup(title='Select target variable',
+                content=create_scrollable_treeview(var_labels,
+                                                   self.select_target_variable,
+                                                   'Variables')))
+
+    def select_target_variable(self, instance, touch):
+        self.close_popup()
+        index = instance.path[0]
+        self.model.set_target(self.model.metadata[index][0])
+        # TODO: update display text
 
     def load_arff(self, path, filenames):
         assert len(filenames) == 1
@@ -109,34 +159,5 @@ class GrizzlyController(FloatLayout):
         popup.content.cancel = self.close_popup
         self.show_popup(popup)
 
-    def _build_classifier_tree(self, classifier_callback):
-        class TreeViewLabel(ClickableLabel, TreeViewNode):
-            path = ObjectProperty()
-
-        tv = TreeView(root_options={'text': 'Estimators'})
-
-        def populate_tree(parent, level, index, path):
-            obj = level if index is None else level[index]
-            if hasattr(obj, 'name'):
-                estimator = obj
-                label = TreeViewLabel(text=estimator.name,
-                                      onclick=classifier_callback)
-                label.path = copy(path)
-                tv.add_node(label, parent)
-            else:
-                try:
-                    indices = obj.iterkeys()
-                except AttributeError:
-                    indices = xrange(len(obj))
-                if index is not None:
-                    group_node = TreeViewLabel(text=index)
-                    tv.add_node(group_node, parent)
-                else:
-                    group_node = None
-                for index in indices:
-                    populate_tree(group_node, obj, index, path + [index])
-            return
-        populate_tree(None, self.model.estimators, None, [])
-        return tv
 
 Factory.register('LoadDialog', cls=LoadDialog)
