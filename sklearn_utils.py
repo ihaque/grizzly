@@ -1,3 +1,7 @@
+from sklearn.base import ClassifierMixin
+from sklearn.base import ClusterMixin
+from sklearn.base import RegressorMixin
+
 _sklearn_base = 'sklearn'
 _sklearn_estimator_modules = [
     # Clustering
@@ -17,10 +21,8 @@ _sklearn_estimator_modules = [
     'tree',
 ]
 
+
 def list_classifiers():
-    from sklearn.base import ClassifierMixin
-    from sklearn.base import ClusterMixin
-    from sklearn.base import RegressorMixin
     from inspect import getmembers
     from inspect import isabstract
     from inspect import isclass
@@ -31,7 +33,8 @@ def list_classifiers():
     for modulename in _sklearn_estimator_modules:
         modulepath = '%s.%s' % (_sklearn_base, modulename)
         module = __import__(modulepath, fromlist=[modulename])
-        for name, obj in getmembers(module, lambda obj: isclass(obj) and not isabstract(obj)):
+        for name, obj in getmembers(module, lambda obj: isclass(obj) and
+                                                        not isabstract(obj)):
             obj = getattr(module, name)
             if obj is ClassifierMixin or obj is RegressorMixin:
                 continue
@@ -44,6 +47,7 @@ def list_classifiers():
             else:
                 other.append((modulepath, name))
     return cls, reg, clus
+
 
 def _parse_docstring_for_params(docstring):
     BEFORE_PARAM = 0
@@ -71,24 +75,31 @@ def _parse_docstring_for_params(docstring):
             assert False, "Bad state in parser"
     return '\n'.join(param_text)
 
+
 def get_params_and_descs(estimator):
     desc = _parse_docstring_for_params(estimator.__doc__)
     default_params = estimator().get_params()
     return default_params, desc
 
+
 def import_from(path, name):
     return getattr(__import__(path, fromlist=[name]), name)
 
-if __name__ == '__main__':
-    cls, reg, clus = list_classifiers()
-    for txt, lst in [('Classifiers', cls), ('Regressors', reg), ('Clusterers', clus)]:
-        print "%s:" % txt
-        for p, n in lst:
-            print p, n
-            params, desc = get_params_and_descs(import_from(p,n))
-            print "\t", params
-            print desc
-            print
-    pass
 
-    
+def _is_subclass_or_instance(obj, cls):
+    try:
+        return issubclass(obj, cls)
+    except TypeError:
+        return isinstance(obj, cls)
+
+
+def is_classifier(estimator):
+    return _is_subclass_or_instance(estimator, ClassifierMixin)
+
+
+def is_regressor(estimator):
+    return _is_subclass_or_instance(estimator, RegressorMixin)
+
+
+def is_clusterer(estimator):
+    return _is_subclass_or_instance(estimator, ClusterMixin)

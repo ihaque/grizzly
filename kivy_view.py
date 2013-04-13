@@ -129,6 +129,7 @@ class GrizzlyController(FloatLayout):
         for idx in instance.path:
             label = label[idx]
         self.classifier_name = "%s (%s)" % (label.name, label.fullname)
+        self.model.set_estimator(label)
 
     def choose_target_variable(self):
         _vartype = namedtuple('vartype', ('name', ))
@@ -158,6 +159,16 @@ class GrizzlyController(FloatLayout):
         popup.content.load = self.load_arff
         popup.content.cancel = self.close_popup
         self.show_popup(popup)
+
+    def start_classification(self):
+        ready, messages = self.model.ready()
+        logger.info(str(ready))
+        logger.info('\n'.join(messages))
+        if not ready:
+            logger.error('Cannot start classification:')
+            logger.error('\n'.join(messages))
+            return
+        self.model.start_classification()
 
 
 Factory.register('LoadDialog', cls=LoadDialog)
