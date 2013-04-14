@@ -7,7 +7,11 @@ import scipy.sparse as sparse
 
 
 def shared_empty_ndarray(shape, dtype):
-    n_elems = reduce(mul, shape)
+    try:
+        iter(shape)
+        n_elems = reduce(mul, shape)
+    except TypeError:
+        n_elems = shape
     n_bytes = n_elems * np.dtype(dtype).itemsize
     # Use a RawArray instead of an Array because we're going to
     # bypass the lock anyway by having numpy directly use this
@@ -15,7 +19,12 @@ def shared_empty_ndarray(shape, dtype):
     mem = sharedctypes.RawArray('c', n_bytes)
     # The `base` attribute of the returned ndarray holds a reference to the
     # sharedctypes array, so we don't need to pass it back.
-    return np.ndarray(shape=shape, dtype=dtype, buffer=buffer(mem))
+    # Buffer objects are not writable by default, but Numpy just steals
+    # the pointer anyway. We know the array is writable, so poke the flag
+    # manually.
+    array = np.ndarray(shape=shape, dtype=dtype, buffer=buffer(mem))
+    array.flags.writeable = True
+    return array
 
 
 def _shared_dense_ndarray(array):
@@ -84,6 +93,7 @@ class MultiprocessCrossValidator(object):
                  n_jobs=None):
         """
         """
+        _print_resource_usage()
         pool = Pool(processes=n_jobs,
                     initializer=self._parallel_initializer,
                     initargs=map(self._ndarray_to_params, (self.X, self.y)))
@@ -97,6 +107,7 @@ class MultiprocessCrossValidator(object):
             results.append(result)
         pool.close()
         pool.join()
+        _print_resource_usage()
         return results
 
     @staticmethod
@@ -115,10 +126,28 @@ class MultiprocessCrossValidator(object):
             MultiprocessCrossValidator._ndarray_from_params(yparams)
 
 
+def _print_resource_usage():
+    from os import getpid
+    import resource
+    usage = resource.getrusage(resource.RUSAGE_SELF)
+    pid = getpid()
+    fields = ['ru_utime', 'ru_stime', 'ru_maxrss', 'ru_ixrss',
+              'ru_idrss', 'ru_isrss', 'ru_minflt', 'ru_majflt',
+              'ru_nswap', 'ru_inblock', 'ru_oublock', 'ru_msgsnd',
+              'ru_msgrcv', 'ru_nsignals', 'ru_nvcsw', 'ru_nivcsw']
+    lines = ['']
+    for field in fields:
+        lines.append('%d\t%s\t%s' % (pid, field, str(getattr(usage, field))))
+    print '\n'.join(lines)
+
+
 def _mpcv_parallel_worker((estimator_cls,
                      train_indices, test_indices, evaluator,
                      estimator_params, fit_params)):
+    _print_resource_usage()
     X = _mpcv_parallel_worker._parallel_X
+    import os
+    print os.getpid(), "X @", repr(X.data)
     y = _mpcv_parallel_worker._parallel_y
     estimator = estimator_cls(**estimator_params)
     estimator.fit(X[train_indices, :], y[train_indices], **fit_params)

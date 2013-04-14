@@ -3,6 +3,7 @@ import logging
 import threading
 #os.environ['KIVY_NO_CONSOLELOG'] = "1"
 
+import numpy as np
 from scipy.io.arff import loadarff
 import sklearn.metrics as metrics
 
@@ -111,7 +112,8 @@ class GrizzlyModel(object):
         # Create X and y arrays in shared memory
         col_names = [name for idx, name in enumerate(self._meta.names())
                      if idx != self._target_idx]
-        X = shared_empty_ndarray((self._data.shape[0], len(col_names)))
+        X = shared_empty_ndarray((self._data.shape[0], len(col_names)),
+                                 np.float64)
         for idx, name in enumerate(col_names):
             X[:, idx] = self._data[name]
 
