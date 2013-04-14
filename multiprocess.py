@@ -1,9 +1,14 @@
+import logging
+from multiprocessing import Condition
 from multiprocessing import Pool
 from multiprocessing import sharedctypes
 from operator import mul
 
 import numpy as np
 import scipy.sparse as sparse
+
+logger = logging.getLogger('grizzly')
+logger.setLevel(logging.DEBUG)
 
 
 def shared_empty_ndarray(shape, dtype):
@@ -41,8 +46,6 @@ def shared_ndarray_copy(array):
 
     The returned ndarray has no intrinsic locks, lock it yourself.
     """
-    print array.shape
-    print array.dtype
     if not sparse.issparse(array):
         return _shared_dense_ndarray(array)
 
@@ -89,25 +92,45 @@ class MultiprocessCrossValidator(object):
         self.estimator_cls = estimator_cls
         self.params = params
 
+    def async(self, cv_iterator, evaluator, fold_callback=None, n_jobs=None):
+        pool = Pool(processes=n_jobs,
+                    initializer=self._parallel_initializer,
+                    initargs=map(self._ndarray_to_params, (self.X, self.y)))
+        args = ({'estimator_cls': self.estimator_cls,
+                 'train_indices': train,
+                 'test_indices': test,
+                 'evaluator': evaluator,
+                 'estimator_params': {},
+                 'fit_params': {}} for train, test in cv_iterator)
+        deferreds = [pool.apply_async(_mpcv_parallel_worker, kwds=kwargs,
+                                      callback=fold_callback)
+                     for kwargs in args]
+        return pool, deferreds
+
     def __call__(self, cv_iterator, evaluator, fold_callback=None,
                  n_jobs=None):
         """
         """
-        _print_resource_usage()
-        pool = Pool(processes=n_jobs,
-                    initializer=self._parallel_initializer,
-                    initargs=map(self._ndarray_to_params, (self.X, self.y)))
-        args = ((self.estimator_cls, train, test, evaluator, {}, {})
-                for train, test in cv_iterator)
+        condvar = Condition()
         results = []
-        for fold_estimator, result in \
-                pool.imap_unordered(_mpcv_parallel_worker, args):
-            if fold_callback is not None:
-                fold_callback(fold_estimator, result)
+
+        def _signal_cb(result):
+            condvar.acquire()
             results.append(result)
+            condvar.notify()
+            condvar.release()
+        folds = list(cv_iterator)
+
+        pool, deferreds = self.async(folds, evaluator,
+                                     fold_callback=_signal_cb, n_jobs=n_jobs)
         pool.close()
+        while len(results) < len(folds):
+            condvar.acquire()
+            condvar.wait()
+            fold_estimator, result = results[-1]
+            fold_callback(fold_estimator, result)
+            condvar.release()
         pool.join()
-        _print_resource_usage()
         return results
 
     @staticmethod
@@ -141,13 +164,11 @@ def _print_resource_usage():
     print '\n'.join(lines)
 
 
-def _mpcv_parallel_worker((estimator_cls,
+def _mpcv_parallel_worker(estimator_cls,
                      train_indices, test_indices, evaluator,
-                     estimator_params, fit_params)):
-    _print_resource_usage()
+                     estimator_params, fit_params):
+    #_print_resource_usage()
     X = _mpcv_parallel_worker._parallel_X
-    import os
-    print os.getpid(), "X @", repr(X.data)
     y = _mpcv_parallel_worker._parallel_y
     estimator = estimator_cls(**estimator_params)
     estimator.fit(X[train_indices, :], y[train_indices], **fit_params)

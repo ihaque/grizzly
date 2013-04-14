@@ -21,14 +21,14 @@ logger.setLevel(logging.DEBUG)
 
 class ClickableLabel(Label):
     def __init__(self, onclick=None, *args, **kwargs):
-        print "initing clickable label with args, kwargs=", args, kwargs
         super(ClickableLabel, self).__init__(*args, **kwargs)
         self.onclick_callback = onclick
 
     def on_touch_down(self, touch):
-        if (self.onclick_callback is not None and
-                not touch.is_mouse_scrolling and
-                self.collide_point(touch.x, touch.y)):
+        if (self.onclick_callback is not None
+                and not touch.is_mouse_scrolling
+                and self.collide_point(touch.x, touch.y)
+                and touch.button == 'left'):
             self.onclick_callback(self, touch)
         return super(ClickableLabel, self).on_touch_down(touch)
 
@@ -132,6 +132,8 @@ class GrizzlyController(FloatLayout):
         self.model.set_estimator(label)
 
     def choose_target_variable(self):
+        if self.model.metadata is None:
+            return True
         _vartype = namedtuple('vartype', ('name', ))
         var_labels = [_vartype('%s (%s)' % (fname, ftype)) for fname, ftype in
                       self.model.metadata]
@@ -168,8 +170,11 @@ class GrizzlyController(FloatLayout):
             return
         self.model.start_classification(self.show_classification_results)
 
+    def stop_classification(self):
+        self.model.stop_classification()
+
     def show_classification_results(self, __, results):
-        logger.info('\n'.join(map(str,results)))
+        logger.info('\n'.join(map(str, results)))
 
 
 Factory.register('LoadDialog', cls=LoadDialog)
