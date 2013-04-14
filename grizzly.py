@@ -1,5 +1,6 @@
 from collections import OrderedDict
 import logging
+import threading
 #os.environ['KIVY_NO_CONSOLELOG'] = "1"
 
 import numpy as np
@@ -29,6 +30,8 @@ class _estimator(object):
         self.obj = sklearn_utils.import_from(modulepath, name)
         self.default_params, self.desc = \
                 sklearn_utils.get_params_and_descs(self.obj)
+
+
 
 
 class GrizzlyModel(object):
@@ -98,43 +101,93 @@ class GrizzlyModel(object):
 
         return len(errors) == 0, errors
 
-    def start_classification(self):
+    def start_classification(self, callback):
         # TODO: thread this so that we can interrupt
         self._estimator = self._active_estimator_cls.obj()
+        compute_thread = threading.Thread(
+            target=GrizzlyModel._estimate_thread,
+            kwargs={'model': self, 'completion_callback': callback})
+        compute_thread.start()
+        # TODO: allocate shared memory arrays for X and y so that each worker
+        # proc can read from there. see below.
+        # file://localhost/Users/ihaque/oldhome/dox/python-2.7.2-docs-html/library/multiprocessing.html#module-multiprocessing.sharedctypes
+        """
+            >>> a = np.array([[1,2],[3,4]], dtype=np.uint32)
+            >>> import multiprocessing.sharedctypes as sct
+            # There's no point to using Array instead of RawArray, because we're
+            # going to bypass the lock anyway by accessing through numpy. The
+            # call to RawArray is basically just mmap/malloc/shmat.
+            >>> ra = sct.RawArray('c', len(a.data))
+            >>> ra[:] = a.data
+            >>> b = np.ndarray(shape=a.shape, dtype=a.dtype, buffer=buffer(ra))
+            >>> a
+            array([[1, 2],
+                   [3, 4]], dtype=uint32)
+            >>> b
+            array([[1, 2],
+                   [3, 4]], dtype=uint32)
+            >>> b.base is ra  #  the new numpy array is backed by shared memory, no new allocation
+            True
+            >>> ra[0] = '\x0a'
+            >>> b
+            array([[10,  2],
+                   [ 3,  4]], dtype=uint32)
+            >>> a
+            array([[1, 2],
+                   [3, 4]], dtype=uint32)
 
+            b is a copy of a, and is backed by the shared memory we allocated.
+            ideally, we should allocate two shmem arrays of the right size
+            first and then create numpy aliases for them to load X and y.
+            it would be even nicer to not have to have two copies of the data
+            around at all (the first one we loaded from ARFF), but this would
+            require hacking up the ARFF reader and probably two-pass or
+            auto-expanding allocation.
+        """
+        return
+
+    @staticmethod
+    def _estimate_thread(model, completion_callback):
+        """main() function of a thread to estimate model parameters
+        """
         # Build up the feature matrix from the record arrays given by the ARFF
         # loader
         # TODO: is there a better way to do this?
         # TODO: implement cross-validation
-        col_names = [name for idx, name in enumerate(self._meta.names())
-                     if idx != self._target_idx]
-        X = np.empty((self._data.shape[0], len(col_names)))
+        col_names = [name for idx, name in enumerate(model._meta.names())
+                     if idx != model._target_idx]
+        X = np.empty((model._data.shape[0], len(col_names)))
         for idx, name in enumerate(col_names):
-            X[:, idx] = self._data[name]
+            X[:, idx] = model._data[name]
 
-        y = self._data[self._meta.names()[self._target_idx]]
+        y = model._data[model._meta.names()[model._target_idx]]
 
-        self._estimator.fit(X, y)
+        # TODO: should lock the data and the estimator
+        model._estimator.fit(X, y)
+        logger.info(str(model._estimator))
 
         # Test
-        y_pred = self._estimator.predict(X)
+        y_pred = model._estimator.predict(X)
 
+        results = []
         # Compute statistics
-        if is_classifier(self._estimator):
+        if is_classifier(model._estimator):
             accuracy = metrics.accuracy_score(y, y_pred)
             # TODO: pretty-print confusion matrix
             confusion_matrix = metrics.confusion_matrix(y, y_pred)
-            logger.info('Accuracy: %f' % accuracy)
-            logger.info('Confusion matrix:\n%s' % str(confusion_matrix))
-        elif is_regressor(self._estimator):
+            results.append('Accuracy: %f' % accuracy)
+            results.append('Confusion matrix:\n%s' % str(confusion_matrix))
+        elif is_regressor(model._estimator):
             r2 = metrics.r2_score(y, y_pred)
             mse = metrics.mean_squared_error(y, y_pred)
             mae = metrics.mean_absolute_error(y, y_pred)
-            logger.info('R^2: %f' % r2)
-            logger.info('Mean absolute error: %f' % mae)
-            logger.info('Mean squared error: %f' % mse)
-        return
+            results.append('R^2: %f' % r2)
+            results.append('Mean absolute error: %f' % mae)
+            results.append('Mean squared error: %f' % mse)
 
+        # TODO: This callback will execute in the compute thread, which is odd
+        completion_callback(results)
+        return
 
 class GrizzlyApp(App):
     def build(self):
