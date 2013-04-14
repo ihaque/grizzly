@@ -168,8 +168,8 @@ class GrizzlyController(FloatLayout):
             return
         self.model.start_classification(self.show_classification_results)
 
-    def show_classification_results(self, results):
-        logger.info('\n'.join(results))
+    def show_classification_results(self, __, results):
+        logger.info('\n'.join(map(str,results)))
 
 
 Factory.register('LoadDialog', cls=LoadDialog)
