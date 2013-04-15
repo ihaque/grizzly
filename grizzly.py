@@ -1,8 +1,6 @@
-import time
 from collections import OrderedDict
 import logging
 import multiprocessing
-from os import getpid
 import threading
 
 multiprocessing.log_to_stderr().setLevel(logging.DEBUG)
@@ -46,7 +44,6 @@ class GrizzlyModel(object):
         self._active_estimator_cls = None
         self._training_condvar = None
         self._stop_requested = False
-        self._lock = multiprocessing.Lock()
 
     @staticmethod
     def _build_estimator_tree():
@@ -115,30 +112,32 @@ class GrizzlyModel(object):
     def stop_classification(self):
         if not self.currently_training:
             return
-        logger.info('%d acquire @ %d' % (getpid(), 120))
         self._training_condvar.acquire()
         self._stop_requested = True
-        logger.info('requested stop')
         self._training_condvar.notify()
-        logger.info('%d release @ %d' % (getpid(), 125))
         self._training_condvar.release()
+
+    def _shmem_feature_matrices(self):
+        # Create X and y arrays in shared memory
+        col_names = [name for idx, name in enumerate(self._meta.names())
+                     if idx != self._target_idx]
+        X = shared_empty_ndarray((self._data.shape[0], len(col_names)),
+                                 np.float64)
+        for idx, name in enumerate(col_names):
+            X[:, idx] = self._data[name]
+
+        local_y = self._data[self._meta.names()[self._target_idx]]
+        y = shared_empty_ndarray(local_y.shape, local_y.dtype)
+        y[:] = local_y
+
+        return X, y
 
     def start_classification(self, callback):
         if self.currently_training:
             logger.info('Already training!')
             return
-        closure = {'completed_count': 0}
-        logger.info('%d acquire @ %d' % (getpid(), 132))
-        self._lock.acquire()
         self._stop_requested = False
         self._training_condvar = multiprocessing.Condition()
-        self._lock.release()
-        logger.info('%d release @ %d' % (getpid(), 136))
-
-        def cb(estimator, result):
-            print "Finished fold %d" % closure['completed_count']
-            print "Result", str(result)
-            closure['completed_count'] += 1
 
         from sklearn.cross_validation import KFold
         compute_thread = threading.Thread(
@@ -153,44 +152,35 @@ class GrizzlyModel(object):
 
     @staticmethod
     def _estimate_thread(model, estimator_cls, folds, metric, callback):
-        # Create X and y arrays in shared memory
-        col_names = [name for idx, name in enumerate(model._meta.names())
-                     if idx != model._target_idx]
-        X = shared_empty_ndarray((model._data.shape[0], len(col_names)),
-                                 np.float64)
-        for idx, name in enumerate(col_names):
-            X[:, idx] = model._data[name]
-
-        local_y = model._data[model._meta.names()[model._target_idx]]
-        y = shared_empty_ndarray(local_y.shape, local_y.dtype)
-        y[:] = local_y
-
+        X, y = model._shmem_feature_matrices()
         results = []
-        folds = list(folds)
+        completed = 0
 
         def _asyncresult_callback(result):
-            logger.info('%d acquire @ %d' % (getpid(), 174))
             model._training_condvar.acquire()
             results.append(result)
-            logger.info('added an async result')
             model._training_condvar.notify()
-            print getpid(), 'releasee @', 177
             model._training_condvar.release()
-            logger.info('%d release @ %d' % (getpid(), 179))
 
         # Train the models
         mpcv = MultiprocessCrossValidator(estimator_cls, None, X, y,
                                           copy=False)
         pool, deferreds = mpcv.async(folds, metric, _asyncresult_callback)
 
-        while not model._stop_requested and len(results) < len(folds):
+        while not model._stop_requested and completed < len(deferreds):
             model._training_condvar.acquire()
             model._training_condvar.wait()
             for fold_estimator, result in results:
                 callback(fold_estimator, result)
+                completed += 1
             del results[:]
             if model._stop_requested:
-                pool.terminate()
+                # Calling terminate on a pool causes the process to hang
+                # see kivy/kivy/issues/1116
+                #pool.terminate()
+                logger.warning("Can't stop, won't stop: "
+                               "Kivy hangs on terminate")
+                model._stop_requested = False
             model._training_condvar.release()
 
         if not model._stop_requested:
@@ -198,9 +188,7 @@ class GrizzlyModel(object):
             pool.join()
 
         # Clean up
-        model._lock.acquire()
         model._training_condvar = None
-        model._lock.release()
         return
 
 
