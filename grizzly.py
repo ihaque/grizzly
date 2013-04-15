@@ -67,14 +67,13 @@ class GrizzlyModel(object):
         self._target_idx = None
         logger.info('Loaded %d instances from %s' %
                     (self._data.shape[0], filename))
-        logger.info('Features: ' + str(self.metadata))
+        logger.info('Features: ' + str(zip(*self.get_variables())))
 
-    @property
-    def metadata(self):
+    def get_variables(self):
         if self._meta is None:
-            return None
+            return None, None
         else:
-            return zip(self._meta.names(), self._meta.types())
+            return self._meta.names(), self._meta.types()
 
     def set_target(self, target_name):
         assert target_name in self._meta.names()
@@ -93,11 +92,15 @@ class GrizzlyModel(object):
             errors.append('Must select a target variable')
         if self._active_estimator_cls is None:
             errors.append('Must select an estimator to use')
+
         var_type = self._meta.types()[self._target_idx]
-        if var_type == 'nominal' and is_regressor(self._active_estimator_cls):
+        if var_type == 'nominal' and \
+                is_regressor(self._active_estimator_cls.obj):
             errors.append('Attempting to regress on a nominal variable')
-        if is_clusterer(self._active_estimator_cls):
+
+        if is_clusterer(self._active_estimator_cls.obj):
             errors.append('Clustering not currently supported')
+
         var_types = self._meta.types()
         if not all(typ == 'numeric' for ii, typ in enumerate(var_types) if
                    ii != self._target_idx):

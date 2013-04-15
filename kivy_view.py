@@ -1,5 +1,6 @@
 from collections import namedtuple
 from copy import copy
+from itertools import izip
 import logging
 import os
 
@@ -96,6 +97,7 @@ def create_scrollable_treeview(nested_dicts, onclick, root_label):
 
 class GrizzlyController(FloatLayout):
     classifier_label = ObjectProperty()
+    var_picker_button = ObjectProperty()
     classifier_name = StringProperty()
     output_text = StringProperty()
 
@@ -113,6 +115,8 @@ class GrizzlyController(FloatLayout):
         popup.open()
 
     def close_popup(self):
+        if self.current_popup is None:
+            return
         self.current_popup.dismiss()
         self.current_popup = None
 
@@ -132,22 +136,26 @@ class GrizzlyController(FloatLayout):
         self.model.set_estimator(label)
 
     def choose_target_variable(self):
-        if self.model.metadata is None:
+        variables, types = self.model.get_variables()
+        if variables is None:
             return True
         _vartype = namedtuple('vartype', ('name', ))
         var_labels = [_vartype('%s (%s)' % (fname, ftype)) for fname, ftype in
-                      self.model.metadata]
+                      izip(variables, types)]
         self.show_popup(
             Popup(title='Select target variable',
-                content=create_scrollable_treeview(var_labels,
-                                                   self.select_target_variable,
-                                                   'Variables')))
+                content=create_scrollable_treeview(
+                    var_labels, self.select_target_variable, 'Variables')))
+
+    def _select_variable(self, index):
+        variables, types = self.model.get_variables()
+        self.model.set_target(variables[index])
+        self.var_picker_button.text = 'Predict: %s (%s)' % (variables[index],
+                                                            types[index])
 
     def select_target_variable(self, instance, touch):
         self.close_popup()
-        index = instance.path[0]
-        self.model.set_target(self.model.metadata[index][0])
-        # TODO: update display text
+        self._select_variable(instance.path[0])
 
     def load_arff(self, path, filenames):
         assert len(filenames) == 1
@@ -155,6 +163,7 @@ class GrizzlyController(FloatLayout):
         logger.info("Loading from %s..." % filename)
         self.model.load_data(filename)
         self.close_popup()
+        self._select_variable(-1)
 
     def onclick_loadfile(self):
         popup = Popup(title="Load ARFF", content=LoadDialog())
