@@ -86,6 +86,8 @@ class GrizzlyModel(object):
 
     def ready(self):
         errors = []
+        if self.currently_training:
+            errors.append('Already training a model')
         if self._data is None:
             errors.append('No dataset loaded')
         if self._target_idx is None:
@@ -170,6 +172,23 @@ class GrizzlyModel(object):
                                           copy=False)
         pool, deferreds = mpcv.async(folds, metric, _asyncresult_callback)
 
+        import time
+        tasks = len(deferreds)
+        while completed < tasks:
+            complete = []
+            incomplete = []
+            for defd in deferreds:
+                if defd.ready():
+                    completed += 1
+                    complete.append(defd)
+                else:
+                    incomplete.append(defd)
+            for defd in complete:
+                callback(*defd.get())
+
+            deferreds = incomplete
+            time.sleep(0.1)
+        """
         while not model._stop_requested and completed < len(deferreds):
             model._training_condvar.acquire()
             model._training_condvar.wait()
@@ -185,20 +204,27 @@ class GrizzlyModel(object):
                                "Kivy hangs on terminate")
                 model._stop_requested = False
             model._training_condvar.release()
-
+        """
+        logger.info('Done training')
         if not model._stop_requested:
             pool.close()
             pool.join()
 
         # Clean up
+        logger.info('Cleaning up')
+        cv = model._training_condvar
+        cv.acquire()
         model._training_condvar = None
+        cv.release()
         return
 
 
 class GrizzlyApp(App):
     def build(self):
-        return GrizzlyController(model=GrizzlyModel(),
+        self.controller = GrizzlyController(model=GrizzlyModel(),
                                  classifier_name="N/A")
+        self.controller.extra_init()
+        return self.controller
 
 
 if __name__ == '__main__':
