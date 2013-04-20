@@ -3,6 +3,7 @@ from copy import copy
 from itertools import izip
 import logging
 import os
+import threading
 
 from kivy.factory import Factory
 
@@ -53,9 +54,12 @@ class LoadDialog(FloatLayout):
 class OutputWindowStream(object):
     def __init__(self, controller_obj):
         self.controller = controller_obj
+        self._lock = threading.Lock()
 
     def write(self, data):
+        self._lock.acquire()
         self.controller.output_text += data
+        self._lock.release()
 
     def flush(self):
         pass
@@ -98,6 +102,8 @@ def create_scrollable_treeview(nested_dicts, onclick, root_label):
 class GrizzlyController(FloatLayout):
     classifier_label = ObjectProperty()
     var_picker_button = ObjectProperty()
+    log_window = ObjectProperty()
+    log_frame = ObjectProperty()
     classifier_name = StringProperty()
     output_text = StringProperty()
 
@@ -108,6 +114,12 @@ class GrizzlyController(FloatLayout):
         self.window_logging_handler = logging.StreamHandler(
             OutputWindowStream(self))
         logger.addHandler(self.window_logging_handler)
+
+    def extra_init(self, *args, **kwargs):
+        self.log_window.size_hint_y = None
+        print 'lwh', self.log_window.height
+        print self.log_window.__dict__
+        
 
     def show_popup(self, popup):
         assert self.current_popup is None

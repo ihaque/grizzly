@@ -3,6 +3,8 @@
 <GrizzlyController>:
     classifier_label: classifier_label
     var_picker_button: var_picker_button
+    log_window: log_window
+    log_frame: log_frame
     BoxLayout:
         orientation: 'vertical'
 
@@ -81,11 +83,15 @@
                         size_hint: (1, .5)
                         text: 'Result list'
                         
-
-            TextInput:
+            ScrollView:
+                id: log_frame
                 size_hint: (.7, 1)
-                text: root.output_text or 'classifier output'
-                readonly: True
+                TextInput:
+                    size_hint_y: None
+                    text: root.output_text or 'classifier output'
+                    readonly: True
+                    id: log_window
+                    height:  max((len(self._lines)+1) * self.line_height, log_frame.height)
 
         # Status
         BoxLayout:
